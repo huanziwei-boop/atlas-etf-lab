@@ -1,0 +1,2 @@
+# Optional only. Core research engine uses Python standard library.
+yfinance>=0.2.54,<1
