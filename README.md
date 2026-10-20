@@ -18,20 +18,12 @@ fixed universe selected today: it is not a point-in-time universe and carries
 selection bias. SPY and QQQ overlap materially; five tickers do not mean five
 independent risk sources.
 
-## Download the full source
-
-The initial browser upload includes `atlas-etf-lab.zip`, which contains the full
-package directory, tests, SQL, report and CI configuration. Download and extract
-that archive, then run the commands below from its `atlas-etf-lab` directory.
-The archive layout is ready for a normal Git push; the root files alone are not
-a complete checkout. CI and Pages are not active on this archive-only upload.
-
 ## Run in 30 seconds
 
 Python 3.9+; no dependencies for the engine, synthetic fixture or report.
 
 ```bash
-python -m unittest discover -s tests -v
+python -m unittest test_engine -v
 python -m atlas.build
 python -m http.server 8000 --directory docs --bind 127.0.0.1
 ```
@@ -98,14 +90,14 @@ https://in.help.yahoo.com/kb/adjusted-close-sln28256.html
 | `atlas/data.py` | deterministic synthetic generator and CSV loader |
 | `atlas/build.py` | 18-scenario sweep, fingerprint, HTML and SQLite export |
 | `atlas/template.html` | responsive self-contained research dashboard |
-| `sql/research.sql` | daily returns, cost sensitivity, coverage audit |
-| `tests/test_engine.py` | accounting invariants and future-data perturbation |
-| `.github/workflows/test.yml` | Python 3.9 / 3.12 CI configuration |
+| `research.sql` | daily returns, cost sensitivity, coverage audit |
+| `test_engine.py` | accounting invariants and future-data perturbation |
+| `index.html` | ready-to-open synthetic demonstration |
 
 Generated SQLite data is ignored by Git. Rebuild it and run:
 
 ```bash
-sqlite3 docs/research.sqlite < sql/research.sql
+sqlite3 docs/research.sqlite < research.sql
 ```
 
 ## What is tested
@@ -113,7 +105,7 @@ sqlite3 docs/research.sqlite < sql/research.sql
 Buy-and-hold arithmetic between rebalances, initial entry costs on flat prices,
 weight normalization, no change to earlier results when future prices change,
 known-path drawdown, invalid observations, invalid strategies, common sample
-windows and cost monotonicity. CI is configured but has not run on GitHub yet.
+windows and cost monotonicity. CI configuration is included in the archive but has not run on GitHub yet.
 
 ## What would make this investment-grade
 
@@ -125,8 +117,10 @@ brokerage integration is included.
 
 ## Publication
 
-Create an empty repository named `atlas-etf-lab`, then push this folder. For
-GitHub Pages, publish the `docs` folder from the main branch. Keep the synthetic
+Repository: https://github.com/huanziwei-boop/atlas-etf-lab
+
+For GitHub Pages, the root `index.html` is a synthetic demo. Locally rebuilt
+reports are written to `docs` by default. Keep the synthetic
 banner until you intentionally generate and review a licensed historical report.
 
 ## Interview discussion
