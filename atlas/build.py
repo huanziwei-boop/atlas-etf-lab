@@ -8,11 +8,13 @@ from pathlib import Path
 from datetime import datetime, timezone
 from .data import demo, load_csv
 from .engine import backtest, validate
+from .risk import monitor
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--csv', type=Path)
+    p.add_argument('--risk-limits', type=Path, help='JSON with four fractional monitoring limits')
     p.add_argument('--source', default='')
     p.add_argument('--adjusted-confirmed', action='store_true')
     p.add_argument('--output', type=Path, default=Path('docs'))
@@ -25,11 +27,14 @@ def main():
     runs = [backtest(rows, strategy=s, cost_bps=c, frequency=f)
             for s in ['equal', 'balanced', 'inverse_vol']
             for c in [0, 10, 25] for f in ['monthly', 'quarterly']]
+    limits = json.loads(a.risk_limits.read_text()) if a.risk_limits else None
+    for run in runs:
+        run['risk'] = monitor(run, limits=limits)
     digest = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
     payload = {'synthetic': not bool(a.csv), 'source': source, 'assets': names,
                'observations': len(rows), 'sha256': digest,
                'built_utc': datetime.now(timezone.utc).isoformat(),
-               'methodology_version': '2.0',
+               'methodology_version': '2.1',
                'execution': 'Signal t-2 close; execute t-1 close; earn return into t',
                'cost_model': 'Self-financing target allocation; fees on actual buy and sell notional',
                'runs': runs}
@@ -60,6 +65,12 @@ def main():
         writer=csv.DictWriter(stream,fieldnames=columns); writer.writeheader()
         for run in runs:
             writer.writerow({k:run[k] if k in run else run['metrics'][k] for k in columns})
+    with (a.output / 'risk_exceptions.csv').open('w', newline='') as stream:
+        writer=csv.DictWriter(stream, fieldnames=['strategy','cost_bps','frequency','date','metric','value','limit'])
+        writer.writeheader()
+        for run in runs:
+            for event in run['risk']['exceptions']:
+                writer.writerow(dict(strategy=run['strategy'],cost_bps=run['cost_bps'],frequency=run['frequency'],**event))
     db.commit()
     db.close()
     print('Built', a.output / 'index.html', '|', source, '|', len(runs), 'scenarios')
