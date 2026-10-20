@@ -1,5 +1,6 @@
 """Build a portable report and a SQLite research warehouse."""
 import argparse
+import csv
 import hashlib
 import json
 import sqlite3
@@ -27,7 +28,11 @@ def main():
     digest = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
     payload = {'synthetic': not bool(a.csv), 'source': source, 'assets': names,
                'observations': len(rows), 'sha256': digest,
-               'built_utc': datetime.now(timezone.utc).isoformat(), 'runs': runs}
+               'built_utc': datetime.now(timezone.utc).isoformat(),
+               'methodology_version': '2.0',
+               'execution': 'Signal t-2 close; execute t-1 close; earn return into t',
+               'cost_model': 'Self-financing target allocation; fees on actual buy and sell notional',
+               'runs': runs}
     a.output.mkdir(parents=True, exist_ok=True)
     template = Path(__file__).with_name('template.html').read_text()
     # Escape HTML-sensitive JSON so an untrusted source string cannot end the script.
@@ -38,6 +43,23 @@ def main():
     db.executescript('DROP TABLE IF EXISTS prices; DROP TABLE IF EXISTS runs; CREATE TABLE prices(date TEXT, ticker TEXT, adjusted_close REAL CHECK(adjusted_close>0), PRIMARY KEY(date,ticker)); CREATE TABLE runs(strategy TEXT, cost_bps REAL, frequency TEXT, cagr REAL, volatility REAL, sharpe REAL, max_drawdown REAL);')
     db.executemany('INSERT INTO prices VALUES(?,?,?)', [(r['date'], n, r[n]) for r in rows for n in names])
     db.executemany('INSERT INTO runs VALUES(?,?,?,?,?,?,?)', [(r['strategy'], r['cost_bps'], r['frequency'], *[r['metrics'][k] for k in ['cagr','volatility','sharpe','max_drawdown']]) for r in runs])
+    db.executescript("DROP TABLE IF EXISTS daily_nav; DROP TABLE IF EXISTS trades; "
+                     "CREATE TABLE daily_nav(run_id INTEGER, date TEXT, nav REAL, drawdown REAL, PRIMARY KEY(run_id,date)); "
+                     "CREATE TABLE trades(run_id INTEGER, signal_date TEXT, execution_date TEXT, return_date TEXT, "
+                     "pre_trade_nav REAL, post_trade_nav REAL, traded_value REAL, cost_nav REAL, two_way_turnover REAL);")
+    for run_id, run in enumerate(runs, 1):
+        # runs.rowid equals run_id: table is recreated and inserted in list order.
+        db.executemany('INSERT INTO daily_nav VALUES(?,?,?,?)',
+                       [(run_id,d,v,dd) for d,v,dd in zip(run['dates'],run['equity'],run['drawdown'])])
+        db.executemany('INSERT INTO trades VALUES(?,?,?,?,?,?,?,?,?)',
+                       [(run_id,t['signal_date'],t['execution_date'],t['return_date'],
+                         t['pre_trade_nav'],t['post_trade_nav'],t['traded_value'],t['cost_nav'],t['traded_notional'])
+                        for t in run['trades']])
+    with (a.output / 'scenario_summary.csv').open('w', newline='') as stream:
+        columns=['strategy','cost_bps','frequency','cagr','volatility','sharpe','max_drawdown','daily_cvar_95']
+        writer=csv.DictWriter(stream,fieldnames=columns); writer.writeheader()
+        for run in runs:
+            writer.writerow({k:run[k] if k in run else run['metrics'][k] for k in columns})
     db.commit()
     db.close()
     print('Built', a.output / 'index.html', '|', source, '|', len(runs), 'scenarios')

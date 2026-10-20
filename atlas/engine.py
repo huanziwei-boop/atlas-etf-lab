@@ -58,30 +58,52 @@ def metrics(equity, dates, rf=0.0):
             'max_drawdown': min(drawdown), 'daily_cvar_95': st.mean(tail)}, drawdown
 
 
-def backtest(rows, strategy='equal', lookback=63, cost_bps=10, rf=0, frequency='monthly'):
+def rebalance_cost(value, weights, target, rate):
+    """Self-financing fully invested targets; costs on actual buy + sell dollars."""
+    if not math.isfinite(rate) or not 0 <= rate < 1:
+        raise ValueError('Invalid cost rate')
+    # post_NAV + rate * sum(abs(post_NAV*target - pre_NAV*weights)) = pre_NAV
+    low, high = 0., value
+    for _ in range(70):
+        post = (low + high) / 2
+        traded = sum(abs(post*t-value*w) for t,w in zip(target, weights))
+        if post + rate*traded > value:
+            high = post
+        else:
+            low = post
+    post = (low + high) / 2
+    traded = sum(abs(post*t-value*w) for t,w in zip(target, weights))
+    return post, traded, rate*traded
+
+
+def backtest(rows, strategy='equal', lookback=63, cost_bps=10, rf=0, frequency='monthly', signal_lag=1):
     names = validate(rows)
-    if lookback < 2 or len(rows) <= lookback + 1:
+    if not isinstance(signal_lag, int) or signal_lag < 1:
+        raise ValueError('signal_lag must be at least one complete observation')
+    if lookback < 2 or len(rows) <= lookback + signal_lag + 1:
         raise ValueError('Insufficient history for lookback')
     if not 0 <= cost_bps <= 1000 or not -1 < rf < 1:
         raise ValueError('Invalid cost or risk-free assumption')
     if frequency not in ('monthly', 'quarterly'):
         raise ValueError('Invalid rebalance frequency')
-    start = lookback + 1
+    start = lookback + signal_lag + 1
     value, weights = 1., [0.] * len(names)
     equity, dates, trades, weight_history = [1.], [rows[start-1]['date']], [], []
     for i in range(start, len(rows)):
-        # Signal at t-1 close; execution modeled at that close, before t return.
+        # Signal ends at t-1-lag; execute at t-1 close, before return into t.
         month_changed = rows[i]['date'][:7] != rows[i-1]['date'][:7]
         quarter_start = int(rows[i]['date'][5:7]) in (1, 4, 7, 10)
         rebalance = i == start or (month_changed and (frequency == 'monthly' or quarter_start))
         if rebalance:
-            target = targets(rows, i, names, strategy, lookback)
-            traded = sum(abs(a-b) for a,b in zip(target, weights))
-            fee = value * traded * cost_bps / 10000
-            value -= fee
+            target = targets(rows, i-signal_lag, names, strategy, lookback)
+            pre_value = value
+            value, traded_dollars, fee = rebalance_cost(value, weights, target, cost_bps/10000)
+            traded = traded_dollars / pre_value
             weights = target
-            trades.append({'signal_date': rows[i-1]['date'], 'return_date': rows[i]['date'],
-                           'traded_notional': traded, 'cost_nav': fee,
+            trades.append({'signal_date': rows[i-1-signal_lag]['date'],
+                           'execution_date': rows[i-1]['date'], 'return_date': rows[i]['date'],
+                           'traded_notional': traded, 'traded_value': traded_dollars,
+                           'pre_trade_nav': pre_value, 'post_trade_nav': value, 'cost_nav': fee,
                            'weights': dict(zip(names, target))})
         growth = [rows[i][n] / rows[i-1][n] for n in names]
         gross = sum(w*g for w,g in zip(weights, growth))
@@ -93,4 +115,5 @@ def backtest(rows, strategy='equal', lookback=63, cost_bps=10, rf=0, frequency='
     stats, dd = metrics(equity, dates, rf)
     return {'strategy': strategy, 'dates': dates, 'equity': equity, 'drawdown': dd,
             'metrics': stats, 'trades': trades, 'weights': weight_history,
-            'cost_bps': cost_bps, 'lookback': lookback, 'frequency': frequency}
+            'cost_bps': cost_bps, 'lookback': lookback, 'frequency': frequency,
+            'signal_lag': signal_lag}
