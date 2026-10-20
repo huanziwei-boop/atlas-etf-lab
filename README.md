@@ -5,8 +5,8 @@
 Python · SQLite · SQL window functions · interactive HTML · tested accounting
 
 > **Status: working research prototype. The bundled report uses SYNTHETIC data.**
-> No historical performance claim is made. Real-data acquisition and GitHub publication
-> have not yet been verified in the development environment.
+> No historical performance claim is made. Real-data acquisition remains unverified.
+> Version 2 adds delayed execution, exact proportional-cost accounting, and chronological holdout evaluation.
 
 ## Research question
 
@@ -23,7 +23,7 @@ independent risk sources.
 Python 3.9+; no dependencies for the engine, synthetic fixture or report.
 
 ```bash
-python -m unittest test_engine -v
+python -m unittest discover -s tests -v
 python -m atlas.build
 python -m http.server 8000 --directory docs --bind 127.0.0.1
 ```
@@ -44,7 +44,7 @@ date,SPY,QQQ,IEF,GLD,VNQ
 2024-01-03,101,102,100.1,99,100.5
 ```
 
-The example above is schema illustration only. At least 65 observations are
+The example above is schema illustration only. At least 66 observations are
 needed for the default 63-day trailing window.
 
 ```bash
@@ -64,15 +64,15 @@ https://in.help.yahoo.com/kb/adjusted-close-sln28256.html
 
 ## Accounting contract
 
-- Signals use only returns ending at the prior close; no full-sample volatility.
-- At the close preceding the first observation of a new month/quarter, rebalance
-  to the chosen weights. Execution at the signal close is **idealized**: a real
-  implementation needs a delay or next-open execution model.
-- Apply the next close-to-close adjusted-price return. Weights drift naturally.
-- Costs are `NAV × sum(abs(target - drifted_weights)) × bps / 10,000`.
-  Both bought and sold notional are charged. Initial investment is charged;
-  final liquidation is not. Post-cost wealth is allocated to target weights.
-  This is a proportional NAV haircut approximation, not an exact trade solver.
+- With the default lag, signals use prices through t-2 close, execute at t-1
+  close, and first earn the return into t. Zero signal delay is rejected. This
+  uses observation offsets, not a verified exchange calendar. Adjusted-close
+  execution remains an approximation: no bid/ask spread, market impact, or fills.
+- Rebalance at the close preceding a new month/quarter; weights drift otherwise.
+- Costs solve `post_NAV + rate * sum(abs(post_NAV*target - pre_NAV*weights)) = pre_NAV`.
+  Both bought and sold actual dollar notional are charged. Initial entry is
+  charged; terminal liquidation is not. This is self-financing under proportional
+  fees, not a model of actual brokerage execution.
 - Inverse-volatility uses a 63-return sample standard deviation, floored at 1e-6,
   then normalizes reciprocals. It is not covariance-aware risk parity.
 - All strategies share a warm-up and evaluation window; no optimized parameters
@@ -105,14 +105,14 @@ sqlite3 docs/research.sqlite < research.sql
 Buy-and-hold arithmetic between rebalances, initial entry costs on flat prices,
 weight normalization, no change to earlier results when future prices change,
 known-path drawdown, invalid observations, invalid strategies, common sample
-windows and cost monotonicity. CI configuration is included in the archive but has not run on GitHub yet.
+windows and cost monotonicity. CI configuration is provided; local test results do not imply a successful remote CI run.
 
 ## What would make this investment-grade
 
 Real-data reconciliation against an independent source; live calendar checks;
 next-open execution; time-varying risk-free rates; cash flows and tax accounting;
 transaction-cost estimation; configurable point-in-time universes; missing-data
-policy; pre-specified holdout windows and uncertainty intervals. No trading or
+policy; prospectively locked research protocols and uncertainty intervals. No trading or
 brokerage integration is included.
 
 ## Publication
@@ -130,3 +130,37 @@ why inverse volatility differs from risk parity, how future leakage is tested,
 and why a strong synthetic backtest says nothing about real investment returns.
 This implementation was developed with AI assistance. Review and understand the
 code before presenting it as a personal portfolio project.
+
+## Chronological holdout protocol (v2)
+
+```bash
+python -m atlas.evaluate --split-date 2022-12-30 --output docs/holdout.json
+```
+
+This example is a **synthetic protocol demonstration**, not genuine unseen market
+validation. Choose and freeze the split before inspecting a real test set. At
+10 bps/monthly, select one of three fixed strategies by training Sharpe only.
+Report every candidate's training and holdout metrics; carry positions across
+split with no free reset. Boundary-close NAV is shared but return intervals do
+not overlap. Include two-way turnover/year and fees/start NAV. The test suite
+perturbs future holdout data and verifies training metrics and selection stay
+unchanged. Subsequent strategy redesign after reading a test set invalidates
+its unseen status. Rolling evaluation and uncertainty intervals are not yet built.
+
+## Queryable evidence (v2)
+
+`docs/research.sqlite` contains prices, runs, daily_nav, and trades. Run IDs in
+`daily_nav` and `trades` reference the freshly generated `runs.rowid` (1-based).
+Signal, execution, return dates, actual traded value, fees, and pre/post NAV are
+available for audit. `docs/scenario_summary.csv` is an Excel-readable summary.
+See `sql/audit.sql` for timing, budget reconciliation, turnover, and fee queries.
+All bundled figures remain synthetic.
+
+## Scope boundaries
+
+No point-in-time membership or delisted-security database; do not claim survivor-
+bias elimination. No factor IC/Rank IC, quintile portfolios, fundamentals or
+value factor yet. Five heterogeneous ETFs are too small for convincing stock-
+factor inference. No REST service or cloud deployment yet. Do not claim these
+features on a resume until implemented and verified. See `ROLE_FIT.md` for the
+portfolio positioning and next acceptance gates.

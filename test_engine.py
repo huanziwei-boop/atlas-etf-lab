@@ -23,11 +23,11 @@ class AccountingTests(unittest.TestCase):
     def test_flat_prices_initial_cost(self):
         rows = [{'date': r['date'], 'SPY':100.,'IEF':100.} for r in self.rows]
         result = backtest(rows, cost_bps=10)
-        self.assertAlmostEqual(result['equity'][-1], .999)
+        self.assertAlmostEqual(result['equity'][-1], 1/1.001)
     def test_buy_and_hold_between_rebalances(self):
         rows=[{'date':'2024-01-%02d'%i,'A':100.+i,'B':200.-i} for i in range(1,25)]
         r=backtest(rows,lookback=2,cost_bps=0)
-        expected=.5*rows[-1]['A']/rows[2]['A']+.5*rows[-1]['B']/rows[2]['B']
+        expected=.5*rows[-1]['A']/rows[3]['A']+.5*rows[-1]['B']/rows[3]['B']
         self.assertAlmostEqual(r['equity'][-1],expected)
     def test_duplicate_rejected(self):
         with self.assertRaises(ValueError): validate([self.rows[0]]*3)
